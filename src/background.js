@@ -10,6 +10,7 @@ var SUSPENDED_PREFIX_LEN = SUSPENDED_PREFIX.length;
 // Extension icon onClick handler...
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     if (request.type == "click_event") {
+        mergeAllWindows();
         sortTabGroups();
         sendResponse({ message: 'success' });
     }
@@ -44,6 +45,23 @@ chrome.runtime.onInstalled.addListener(function (details) {
         }, function () { });
     }
 })
+
+async function mergeAllWindows() {
+    const windows = await chrome.windows.getAll({ populate: true });
+
+    if (windows.length > 1) {
+        const mainWindowId = windows[0].id;
+
+        for (let i = 1; i < windows.length; i++) {
+            const win = windows[i];
+            const tabIds = win.tabs.map(tab => tab.id);
+
+            await chrome.tabs.move(tabIds, { windowId: mainWindowId, index: -1 });
+
+            // dont have to close the window because it will be closed automatically when the last tab is moved
+        }
+    }
+}
 
 // Separate windows must be sorted separately - this is to prevent undesired accidental sorting in other windows...
 async function sortTabGroups() {
@@ -124,6 +142,25 @@ async function sortTabs(tabs, groupId, settings) {
                 groupId: groupId,
                 tabIds: tabIds
             })
+        }
+
+        // remove duplicated urls
+        let seenUrls = new Set();
+        for (let i = 0; i < tabs.length; i++) {
+            let tab = tabs[i];
+            let urlString = tab.url.startsWith(SUSPENDED_PREFIX) ? tab.url.substring(SUSPENDED_PREFIX_LEN) : tab.url;
+            let url = new URL(urlString);
+            console.log(url.hostname);
+            if (url.hostname === "docs.google.com" || url.hostname === "ouryahoo.atlassian.net") {
+                url.search = "";
+                url.hash = "";
+                urlString = url.toString();
+            }
+            if (seenUrls.has(urlString)) {
+                await chrome.tabs.remove(tab.id);
+            } else {
+                seenUrls.add(urlString);
+            }
         }
     }
 }
